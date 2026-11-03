@@ -39,11 +39,16 @@ services:
     networks:
       - default
       - n8n_default
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=n8n_default"
+      - "traefik.http.routers.flipping.entrypoints=web,websecure"
       - "traefik.http.routers.flipping.rule=Host(`flipping.veeo.ar`)"
-      - "traefik.http.routers.flipping.entrypoints=websecure"
       - "traefik.http.routers.flipping.tls=true"
       - "traefik.http.routers.flipping.tls.certresolver=mytlschallenge"
       - "traefik.http.services.flipping.loadbalancer.server.port=3000"
