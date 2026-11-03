@@ -1,0 +1,40 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: flipping_search_postgis_prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flipping}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flipping_prod_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-flipping_search}
+    volumes:
+      - postgis_prod_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-flipping} -d $${POSTGRES_DB:-flipping_search}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flipping_search_app_prod
+    restart: always
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-flipping}:${POSTGRES_PASSWORD:-flipping_prod_secret}@postgis:5432/${POSTGRES_DB:-flipping_search}
+      USIG_NORMALIZER_ENABLED: "true"
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - app_persistent_data:/app/data
+
+volumes:
+  postgis_prod_data:
+  app_persistent_data:

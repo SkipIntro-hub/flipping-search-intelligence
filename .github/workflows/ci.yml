@@ -1,0 +1,32 @@
+name: Flipping Search Intelligence CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  verify-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (TypeScript)
+        run: npm run typecheck
+
+      - name: Run Automated Test Suite (IP-00 & IP-01 / POC-01)
+        run: npm test
+
+      - name: Build Production Bundle
+        run: npm run build
