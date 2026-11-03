@@ -23,6 +23,68 @@ interface CaballitoMapProps {
   focusTarget: { coordinates: [number, number]; label: string } | null;
 }
 
+const SUBTE_STATIONS_GEOJSON: GeoJSON.FeatureCollection = {
+  type: 'FeatureCollection',
+  features: [
+    {
+      type: 'Feature',
+      properties: { label: 'Subte A · Río de Janeiro' },
+      geometry: { type: 'Point', coordinates: [-58.4295, -34.6152] },
+    },
+    {
+      type: 'Feature',
+      properties: { label: 'Subte A · Acoyte' },
+      geometry: { type: 'Point', coordinates: [-58.43646, -34.6183] },
+    },
+    {
+      type: 'Feature',
+      properties: { label: 'Subte A · Primera Junta' },
+      geometry: { type: 'Point', coordinates: [-58.4412, -34.6204] },
+    },
+    {
+      type: 'Feature',
+      properties: { label: 'Subte A · Puan' },
+      geometry: { type: 'Point', coordinates: [-58.4484, -34.6235] },
+    },
+    {
+      type: 'Feature',
+      properties: { label: 'Subte A · Carabobo' },
+      geometry: { type: 'Point', coordinates: [-58.4567, -34.6266] },
+    },
+    {
+      type: 'Feature',
+      properties: { label: 'Subte E · J. M. Moreno' },
+      geometry: { type: 'Point', coordinates: [-58.4338, -34.628] },
+    },
+    {
+      type: 'Feature',
+      properties: { label: 'Subte E · Emilio Mitre' },
+      geometry: { type: 'Point', coordinates: [-58.4426, -34.631] },
+    },
+    {
+      type: 'Feature',
+      properties: { label: 'Subte E · Medalla Milagrosa' },
+      geometry: { type: 'Point', coordinates: [-58.4503, -34.6363] },
+    },
+    {
+      type: 'Feature',
+      properties: { label: 'FFCC Sarmiento · Est. Caballito' },
+      geometry: { type: 'Point', coordinates: [-58.4428, -34.6189] },
+    },
+  ],
+};
+
+type BasemapMode = 'STREET' | 'SATELLITE' | 'TOPO';
+
+const BASEMAP_TILES: Record<BasemapMode, string> = {
+  STREET:
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+  SATELLITE:
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  TOPO:
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+};
+
 export const CaballitoMap: React.FC<CaballitoMapProps> = ({
   zones,
   activeVariant,
@@ -42,15 +104,17 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
   const [mapReady, setMapReady] = useState(false);
 
   // Layer visibility toggles
+  const [basemap, setBasemap] = useState<BasemapMode>('STREET');
   const [showZonaA, setShowZonaA] = useState(true);
   const [showZonaB, setShowZonaB] = useState(true);
   const [showBlocks, setShowBlocks] = useState(true);
   const [showProperties, setShowProperties] = useState(true);
+  const [showSubte, setShowSubte] = useState(true);
   const [showUsigNodes, setShowUsigNodes] = useState(true);
   const [blockColorMode, setBlockColorMode] = useState<'SCORE' | 'USD_M2'>('SCORE');
   const [editGeometryOpen, setEditGeometryOpen] = useState(false);
 
-  // Initialize MapLibre GL JS
+  // Initialize MapLibre GL JS with watermark-free Esri Street / Satellite tiles
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -60,29 +124,55 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
         style: {
           version: 8,
           sources: {
-            'osm-raster': {
+            'basemap-street': {
               type: 'raster',
-              tiles: [
-                'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              ],
+              tiles: [BASEMAP_TILES.STREET],
               tileSize: 256,
               attribution:
-                '© OpenStreetMap contributors · © CARTO · Callejero Oficial USIG GCBA',
+                '© Esri · OpenStreetMap · Callejero Oficial USIG GCBA',
+            },
+            'basemap-satellite': {
+              type: 'raster',
+              tiles: [BASEMAP_TILES.SATELLITE],
+              tileSize: 256,
+              attribution: '© Esri World Imagery (Satelital Pulmón de Manzana)',
+            },
+            'basemap-topo': {
+              type: 'raster',
+              tiles: [BASEMAP_TILES.TOPO],
+              tileSize: 256,
+              attribution: '© Esri World Topographic Map',
             },
           },
           layers: [
             {
-              id: 'osm-raster-layer',
+              id: 'layer-street',
               type: 'raster',
-              source: 'osm-raster',
+              source: 'basemap-street',
               minzoom: 0,
               maxzoom: 20,
+              layout: { visibility: 'visible' },
+            },
+            {
+              id: 'layer-satellite',
+              type: 'raster',
+              source: 'basemap-satellite',
+              minzoom: 0,
+              maxzoom: 20,
+              layout: { visibility: 'none' },
+            },
+            {
+              id: 'layer-topo',
+              type: 'raster',
+              source: 'basemap-topo',
+              minzoom: 0,
+              maxzoom: 20,
+              layout: { visibility: 'none' },
             },
           ],
         },
         center: [-58.4452, -34.6268], // Corazón de Caballito (Pedro Goyena / Puan)
-        zoom: 13.8,
+        zoom: 13.9,
       });
 
       map.addControl(new maplibregl.NavigationControl(), 'top-right');
@@ -97,7 +187,6 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
 
       mapRef.current = map;
     } catch {
-      // Fallback if WebGL context is unavailable in headless test runner
       setMapReady(false);
     }
 
@@ -108,6 +197,33 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
       }
     };
   }, []);
+
+  // Switch basemap layer visibility without recreating map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (map.getLayer('layer-street')) {
+      map.setLayoutProperty(
+        'layer-street',
+        'visibility',
+        basemap === 'STREET' ? 'visible' : 'none'
+      );
+    }
+    if (map.getLayer('layer-satellite')) {
+      map.setLayoutProperty(
+        'layer-satellite',
+        'visibility',
+        basemap === 'SATELLITE' ? 'visible' : 'none'
+      );
+    }
+    if (map.getLayer('layer-topo')) {
+      map.setLayoutProperty(
+        'layer-topo',
+        'visibility',
+        basemap === 'TOPO' ? 'visible' : 'none'
+      );
+    }
+  }, [basemap, mapReady]);
 
   // Fly to searched address / point
   useEffect(() => {
@@ -120,7 +236,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
     }
   }, [focusTarget, mapReady]);
 
-  // Synchronize GeoJSON sources and layers whenever data or layer toggles change
+  // Synchronize GeoJSON sources and layers
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -155,7 +271,6 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
                 properties: { id: zonaB.id, name: zonaB.name },
                 geometry: {
                   type: 'Polygon',
-                  // Anillo exterior (Perímetro general) + Anillo interior hueco (Zona A) => Superposición CERO
                   coordinates: [zonaB.outerRing, ...(zonaB.holes ?? [])],
                 },
               },
@@ -168,23 +283,23 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
       features: showBlocks
         ? blocks.map((b) => {
             const isSelected = b.id === selectedBlockId;
-            let strokeColor = '#38bdf8';
+            let strokeColor = '#0284c7';
             if (blockColorMode === 'SCORE') {
               strokeColor =
                 b.territorialScore >= 90
-                  ? '#10b981'
+                  ? '#059669'
                   : b.territorialScore >= 82
-                  ? '#38bdf8'
-                  : '#f59e0b';
+                  ? '#0284c7'
+                  : '#d97706';
             } else {
               strokeColor =
                 b.usdM2RefMin === null
-                  ? '#a855f7'
+                  ? '#9333ea'
                   : b.usdM2RefMin >= 2000
-                  ? '#ef4444'
+                  ? '#dc2626'
                   : b.usdM2RefMin >= 1750
-                  ? '#f59e0b'
-                  : '#10b981';
+                  ? '#d97706'
+                  : '#059669';
             }
             return {
               type: 'Feature',
@@ -194,7 +309,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
                 score: b.territorialScore,
                 empty: b.activePropertyCount === 0,
                 selected: isSelected,
-                color: isSelected ? '#ffffff' : strokeColor,
+                color: isSelected ? '#1d4ed8' : strokeColor,
               },
               geometry: {
                 type: 'LineString',
@@ -219,10 +334,12 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
               selected: p.id === selectedPropertyId,
               color:
                 p.id === selectedPropertyId
-                  ? '#ffffff'
-                  : p.locationPrecision === 'EXACTA'
+                  ? '#2563eb'
+                  : !p.isSynthetic
                   ? '#10b981'
-                  : '#facc15',
+                  : p.locationPrecision === 'EXACTA'
+                  ? '#059669'
+                  : '#eab308',
             },
             geometry: {
               type: 'Point',
@@ -252,6 +369,10 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
         : [],
     };
 
+    const subteGeoJson: GeoJSON.FeatureCollection = showSubte
+      ? SUBTE_STATIONS_GEOJSON
+      : { type: 'FeatureCollection', features: [] };
+
     const upsertGeoJsonSource = (id: string, data: GeoJSON.FeatureCollection) => {
       const existing = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
       if (existing) {
@@ -264,6 +385,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
     upsertGeoJsonSource('zona-b-source', zonaBGeoJson);
     upsertGeoJsonSource('zona-a-source', zonaAGeoJson);
     upsertGeoJsonSource('blocks-source', blocksGeoJson);
+    upsertGeoJsonSource('subte-source', subteGeoJson);
     upsertGeoJsonSource('vertices-source', verticesGeoJson);
     upsertGeoJsonSource('properties-source', propertiesGeoJson);
 
@@ -274,7 +396,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
         source: 'zona-b-source',
         paint: {
           'fill-color': '#f59e0b',
-          'fill-opacity': 0.14,
+          'fill-opacity': 0.16,
         },
       });
       map.addLayer({
@@ -282,8 +404,8 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
         type: 'line',
         source: 'zona-b-source',
         paint: {
-          'line-color': '#f59e0b',
-          'line-width': 2.5,
+          'line-color': '#d97706',
+          'line-width': 3,
           'line-dasharray': [3, 2],
         },
       });
@@ -296,7 +418,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
         source: 'zona-a-source',
         paint: {
           'fill-color': '#10b981',
-          'fill-opacity': 0.22,
+          'fill-opacity': 0.24,
         },
       });
       map.addLayer({
@@ -304,8 +426,8 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
         type: 'line',
         source: 'zona-a-source',
         paint: {
-          'line-color': '#10b981',
-          'line-width': 3,
+          'line-color': '#059669',
+          'line-width': 3.5,
         },
       });
     }
@@ -321,7 +443,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
         },
         paint: {
           'line-color': ['get', 'color'],
-          'line-width': ['case', ['get', 'selected'], 9, 6],
+          'line-width': ['case', ['get', 'selected'], 10, 6.5],
           'line-opacity': 0.92,
         },
       });
@@ -338,6 +460,20 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
       });
       map.on('mouseleave', 'blocks-line', () => {
         map.getCanvas().style.cursor = '';
+      });
+    }
+
+    if (!map.getLayer('subte-circle')) {
+      map.addLayer({
+        id: 'subte-circle',
+        type: 'circle',
+        source: 'subte-source',
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#a855f7',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ffffff',
+        },
       });
     }
 
@@ -361,10 +497,10 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
         type: 'circle',
         source: 'properties-source',
         paint: {
-          'circle-radius': ['case', ['get', 'selected'], 11, 8],
+          'circle-radius': ['case', ['get', 'selected'], 12, 9],
           'circle-color': ['get', 'color'],
-          'circle-stroke-width': 2.5,
-          'circle-stroke-color': '#0f172a',
+          'circle-stroke-width': 3,
+          'circle-stroke-color': '#ffffff',
         },
       });
 
@@ -395,6 +531,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
     showZonaB,
     showBlocks,
     showProperties,
+    showSubte,
     showUsigNodes,
     blockColorMode,
     mapReady,
@@ -412,7 +549,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
       <div className="map-overlay-top-left">
         <div className="layer-card">
           <h4>
-            <span>Capas Cartográficas (Caballito)</span>
+            <span>Capas y Mapa Base (Sin API Key)</span>
             <button
               className="btn"
               style={{ padding: '2px 7px', fontSize: '10px' }}
@@ -421,6 +558,31 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
               {editGeometryOpen ? 'Cerrar Editor GIS' : 'Corregir Polígonos A/B'}
             </button>
           </h4>
+
+          {/* Basemap Selector (Street / Satellite / Topo) */}
+          <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
+            <button
+              className={`btn ${basemap === 'STREET' ? 'btn-primary' : ''}`}
+              style={{ flex: 1, justifyContent: 'center', padding: '4px 6px', fontSize: '11px' }}
+              onClick={() => setBasemap('STREET')}
+            >
+              Callejero CABA
+            </button>
+            <button
+              className={`btn ${basemap === 'SATELLITE' ? 'btn-primary' : ''}`}
+              style={{ flex: 1, justifyContent: 'center', padding: '4px 6px', fontSize: '11px' }}
+              onClick={() => setBasemap('SATELLITE')}
+            >
+              Satelital (Patios/Techos)
+            </button>
+            <button
+              className={`btn ${basemap === 'TOPO' ? 'btn-primary' : ''}`}
+              style={{ flex: 1, justifyContent: 'center', padding: '4px 6px', fontSize: '11px' }}
+              onClick={() => setBasemap('TOPO')}
+            >
+              Topográfico
+            </button>
+          </div>
 
           <div className="layer-toggles">
             <label className="checkbox-label">
@@ -457,7 +619,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
               />
               <span
                 className="legend-line"
-                style={{ backgroundColor: '#38bdf8' }}
+                style={{ backgroundColor: '#0284c7' }}
               />
               Grilla de Cuadras ({blocks.length} tramos · incl. sin avisos)
             </label>
@@ -470,9 +632,22 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
               />
               <span
                 className="legend-dot"
-                style={{ backgroundColor: '#ffffff', border: '2px solid #10b981' }}
+                style={{ backgroundColor: '#10b981', border: '2px solid #ffffff' }}
               />
-              Propiedades Elegibles ({properties.length} sintéticas)
+              Propiedades Elegibles ({properties.length})
+            </label>
+
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={showSubte}
+                onChange={(e) => setShowSubte(e.target.checked)}
+              />
+              <span
+                className="legend-dot"
+                style={{ backgroundColor: '#a855f7', border: '2px solid #ffffff' }}
+              />
+              Estaciones Subte A / Subte E / FFCC Sarmiento (9)
             </label>
 
             <label className="checkbox-label">
@@ -514,7 +689,6 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
           </div>
         </div>
 
-        {/* Interactive Polygon Parametrization & Correction Card (IP-01 requirement) */}
         {editGeometryOpen && (
           <div className="layer-card">
             <h4>Parametrización y Corrección de Límites A/B</h4>
@@ -576,7 +750,7 @@ export const CaballitoMap: React.FC<CaballitoMapProps> = ({
         )}
       </div>
 
-      {/* Bottom-Left Quick Block Selector Bar (guarantees 1-click selection of any block, including empty blocks without listings) */}
+      {/* Bottom-Left Quick Block Selector Bar */}
       <div className="map-overlay-bottom-left">
         <div
           style={{

@@ -399,9 +399,16 @@ export const App: React.FC = () => {
           ARV y MAO fuera del alcance del MVP.
         </div>
         <div className="synthetic-banner-badges">
-          <span className="badge-pill">
-            Novedades Sintéticas: 3 rebajas · 1 dueño directo · 1 aviso no detectado (≠ venta)
+          <span className="badge-pill" style={{ borderColor: '#10b981', color: '#6ee7b7' }}>
+            ✓ PostGIS + USIG GCBA Conectados
           </span>
+          <button
+            className="btn"
+            style={{ padding: '2px 8px', fontSize: '11px', background: onlyRealProperties ? '#059669' : '#1e293b' }}
+            onClick={() => setOnlyRealProperties((v) => !v)}
+          >
+            {onlyRealProperties ? 'Mostrando Solo Datos Reales (Ver Demo)' : 'Ocultar Demo Sintética (Modo Real)'}
+          </button>
         </div>
       </div>
 
@@ -1830,15 +1837,70 @@ export const App: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="filter-label">URL del Aviso (Opcional):</label>
-                        <input
-                          type="text"
-                          className="filter-input"
-                          style={{ width: '100%', marginTop: '3px' }}
-                          placeholder="https://..."
-                          value={importUrl}
-                          onChange={(e) => setImportUrl(e.target.value)}
-                        />
+                        <label className="filter-label">URL del Aviso (Opcional · Auto-extrae datos):</label>
+                        <div style={{ display: 'flex', gap: '4px', marginTop: '3px' }}>
+                          <input
+                            type="text"
+                            className="filter-input"
+                            style={{ flex: 1 }}
+                            placeholder="https://..."
+                            value={importUrl}
+                            onChange={(e) => setImportUrl(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-emerald"
+                            onClick={async () => {
+                              if (!importUrl.trim()) return;
+                              setImportFeedback('Analizando URL pública...');
+                              try {
+                                const r = await fetch('/api/listings/extract-url', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ url: importUrl.trim() }),
+                                });
+                                const d = await r.json();
+                                if (r.ok && d.draft) {
+                                  if (d.draft.addressGuess && !importAddress) {
+                                    setImportAddress(d.draft.addressGuess);
+                                  }
+                                  if (d.draft.priceUsd) {
+                                    setImportPriceUsd(String(d.draft.priceUsd));
+                                  }
+                                  if (d.draft.totalAreaM2) {
+                                    setImportAreaM2(String(d.draft.totalAreaM2));
+                                  }
+                                  if (d.draft.rooms) {
+                                    setImportRooms(String(d.draft.rooms));
+                                  }
+                                  if (d.draft.typology) {
+                                    setImportTypology(d.draft.typology);
+                                  }
+                                  if (d.draft.conditionState) {
+                                    setImportCondition(d.draft.conditionState);
+                                  }
+                                  if (d.draft.sourceName) {
+                                    setImportSourceName(d.draft.sourceName);
+                                  }
+                                  setImportRawText(
+                                    `${d.draft.title || ''} - ${d.draft.description || ''}`.trim()
+                                  );
+                                  setImportFeedback(
+                                    '✓ Metadatos extraídos de la URL. Revisá la dirección y hacé clic en Importar.'
+                                  );
+                                } else {
+                                  setImportFeedback(
+                                    d.error || 'No se pudieron extraer metadatos automáticos; completá el texto manualmente.'
+                                  );
+                                }
+                              } catch {
+                                setImportFeedback('Error al consultar la URL.');
+                              }
+                            }}
+                          >
+                            Extraer URL
+                          </button>
+                        </div>
                       </div>
                     </div>
 

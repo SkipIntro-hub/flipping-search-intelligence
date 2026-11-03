@@ -241,3 +241,83 @@ export function parseFreeTextListing(text: string): ParsedListingCandidate {
     isDirectOwnerDeclared,
   };
 }
+
+export interface UrlExtractedDraft {
+  url: string;
+  title: string;
+  description: string;
+  addressGuess: string;
+  priceUsd: number | null;
+  totalAreaM2: number | null;
+  rooms: number;
+  typology: PropertyTypology;
+  conditionState: PropertyCondition;
+  sourceName: string;
+}
+
+export async function extractListingFromPublicUrl(
+  targetUrl: string
+): Promise<UrlExtractedDraft> {
+  const parsedUrl = new URL(targetUrl);
+  const host = parsedUrl.hostname.replace(/^www\./, '');
+
+  // Intentar deducir dirección/barrio desde el slug de la URL por si el sitio tiene protección antibot
+  const slugWords = decodeURIComponent(parsedUrl.pathname)
+    .replace(/[-_/]+/g, ' ')
+    .trim();
+
+  let html = '';
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(targetUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
+      },
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      html = await res.text();
+    }
+  } catch {
+    // Fallback al análisis del slug de la URL si el sitio bloquea requests directos
+  }
+
+  const ogTitle =
+    html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
+    html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ??
+    slugWords;
+
+  const ogDesc =
+    html.match(
+      /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i
+    )?.[1] ??
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
+    '';
+
+  const combinedText = `${ogTitle} ${ogDesc} ${slugWords}`;
+  const parsed = parseFreeTextListing(combinedText);
+
+  // Intentar detectar calle y altura de CABA en el título/slug (ej: "Pedro Goyena 842", "Puan 400", "Alberdi 1100")
+  const streetMatch = combinedText.match(
+    /\b((?:Av\.?\s+|Avenida\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){0,2}\s+(?:al\s+)?\d{2,4})\b/
+  );
+
+  return {
+    url: targetUrl,
+    title: ogTitle.trim(),
+    description: ogDesc.trim(),
+    addressGuess: streetMatch?.[1] ?? '',
+    priceUsd: parsed.priceUsd,
+    totalAreaM2: parsed.totalAreaM2,
+    rooms: parsed.rooms,
+    typology: parsed.typology,
+    conditionState: parsed.conditionState,
+    sourceName: host,
+  };
+}
+

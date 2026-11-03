@@ -25,10 +25,16 @@ import {
 import {
   classifyPointZone,
   computeNearestTransport,
+  extractListingFromPublicUrl,
   geocodeWithUsigLive,
   haversineMeters,
   parseFreeTextListing,
 } from './usigService';
+import {
+  checkPostgisConnection,
+  loadStateFromPostgis,
+  saveStateToPostgis,
+} from './db';
 
 export interface CreateAppOptions {
   enableDiskPersistence?: boolean;
@@ -116,42 +122,60 @@ export function createApp(options: CreateAppOptions = {}) {
 
   function saveToDisk() {
     if (!persistEnabled) return;
+    const snapshot = {
+      updatedAt: new Date().toISOString(),
+      activeVariant,
+      customZonaARing,
+      blocks,
+      properties,
+      sources,
+    };
     try {
       fs.mkdirSync(path.dirname(storeFile), { recursive: true });
-      fs.writeFileSync(
-        storeFile,
-        JSON.stringify(
-          {
-            updatedAt: new Date().toISOString(),
-            activeVariant,
-            customZonaARing,
-            blocks,
-            properties,
-            sources,
-          },
-          null,
-          2
-        ),
-        'utf-8'
-      );
+      fs.writeFileSync(storeFile, JSON.stringify(snapshot, null, 2), 'utf-8');
     } catch {
       // Ignore write error in read-only environments
     }
+    void saveStateToPostgis(snapshot);
   }
 
   loadFromDisk();
+  if (persistEnabled) {
+    void loadStateFromPostgis<{
+      activeVariant?: ZoneVariantId;
+      customZonaARing?: [number, number][];
+      blocks?: BlockSegment[];
+      properties?: CanonicalProperty[];
+      sources?: SourceRecord[];
+    }>().then((pgData) => {
+      if (pgData) {
+        if (pgData.activeVariant) activeVariant = pgData.activeVariant;
+        if (pgData.customZonaARing) customZonaARing = pgData.customZonaARing;
+        zones = buildZonesForVariant(activeVariant, customZonaARing);
+        if (Array.isArray(pgData.blocks)) blocks = pgData.blocks;
+        if (Array.isArray(pgData.properties)) properties = pgData.properties;
+        if (Array.isArray(pgData.sources)) sources = pgData.sources;
+      }
+    });
+  }
 
   // Health & Metadata endpoint
-  app.get('/api/health', (_req: Request, res: Response) => {
+  app.get('/api/health', async (_req: Request, res: Response) => {
+    const pgStatus = await checkPostgisConnection();
     res.json({
       status: 'ok',
       service: 'flipping-search-intelligence-api',
-      issuePacks: ['IP-00', 'IP-01', 'IP-02', 'IP-03', 'IP-04', 'IP-05', 'IP-07', 'IP-08'],
+      issuePacks: ['IP-00', 'IP-01', 'IP-02', 'IP-03', 'IP-04', 'IP-05', 'IP-06', 'IP-07', 'IP-08'],
       poc: 'POC-01 + MVP Ready',
       syntheticDataNotice:
         'TODOS LOS REGISTROS DE SEMILLA SON DATOS SINTÉTICOS DE PRUEBA (isSynthetic = true). Las altas reales del usuario se etiquetan con isSynthetic = false.',
       activeZoneVariant: activeVariant,
-      persistence: persistEnabled ? 'DISK_AND_POSTGIS_READY' : 'MEMORY_TEST',
+      persistence: pgStatus.connected
+        ? `POSTGIS_CONNECTED (${pgStatus.postgisVersion})`
+        : persistEnabled
+        ? 'DISK_JSON_ACTIVE'
+        : 'MEMORY_TEST',
+      postgis: pgStatus,
       counts: {
         zones: zones.length,
         blocks: blocks.length,
@@ -741,6 +765,21 @@ export function createApp(options: CreateAppOptions = {}) {
     sources.unshift(newSource);
     saveToDisk();
     res.status(201).json({ source: newSource });
+  });
+
+  // POST /api/listings/extract-url — Extrae metadatos OpenGraph/HTML de cualquier URL inmobiliaria pública
+  app.post('/api/listings/extract-url', async (req: Request, res: Response) => {
+    const { url } = req.body as { url?: string };
+    if (!url || !url.startsWith('http')) {
+      res.status(400).json({ error: 'Ingrese una URL válida (https://...)' });
+      return;
+    }
+    try {
+      const draft = await extractListingFromPublicUrl(url.trim());
+      res.json({ draft });
+    } catch {
+      res.status(400).json({ error: 'No se pudo analizar la URL indicada.' });
+    }
   });
 
   // GET /api/geocode?q= — Buscador híbrido (Fixtures + USIG CABA en vivo)
