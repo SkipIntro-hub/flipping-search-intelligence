@@ -10,6 +10,8 @@ services:
     volumes:
       - postgis_prod_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - default
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-flipping} -d $${POSTGRES_DB:-flipping_search}"]
       interval: 10s
@@ -34,6 +36,23 @@ services:
       - "${APP_PORT:-3000}:3000"
     volumes:
       - app_persistent_data:/app/data
+    networks:
+      - default
+      - n8n_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=n8n_default"
+      - "traefik.http.routers.flipping.rule=Host(`flipping.2.25.117.222.sslip.io`) || Host(`flipping.2-25-117-222.traefik.me`) || Host(`flipping.veeo.ar`)"
+      - "traefik.http.routers.flipping.entrypoints=websecure"
+      - "traefik.http.routers.flipping.tls=true"
+      - "traefik.http.routers.flipping.tls.certresolver=mytlschallenge"
+      - "traefik.http.routers.flipping-http.rule=Host(`flipping.2.25.117.222.sslip.io`) || Host(`flipping.2-25-117-222.traefik.me`) || Host(`flipping.veeo.ar`)"
+      - "traefik.http.routers.flipping-http.entrypoints=web"
+      - "traefik.http.services.flipping.loadbalancer.server.port=3000"
+
+networks:
+  n8n_default:
+    external: true
 
 volumes:
   postgis_prod_data:
