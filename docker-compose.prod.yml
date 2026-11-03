@@ -42,12 +42,10 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=n8n_default"
-      - "traefik.http.routers.flipping.rule=Host(`flipping.2.25.117.222.sslip.io`) || Host(`flipping.2-25-117-222.traefik.me`) || Host(`flipping.veeo.ar`)"
+      - "traefik.http.routers.flipping.rule=Host(`flipping.veeo.ar`)"
       - "traefik.http.routers.flipping.entrypoints=websecure"
       - "traefik.http.routers.flipping.tls=true"
       - "traefik.http.routers.flipping.tls.certresolver=mytlschallenge"
-      - "traefik.http.routers.flipping-http.rule=Host(`flipping.2.25.117.222.sslip.io`) || Host(`flipping.2-25-117-222.traefik.me`) || Host(`flipping.veeo.ar`)"
-      - "traefik.http.routers.flipping-http.entrypoints=web"
       - "traefik.http.services.flipping.loadbalancer.server.port=3000"
 
 networks:
