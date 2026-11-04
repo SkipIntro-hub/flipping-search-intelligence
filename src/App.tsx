@@ -93,6 +93,65 @@ export const App: React.FC = () => {
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [newSourceUrl, setNewSourceUrl] = useState<string>('');
   const [newSourceName, setNewSourceName] = useState<string>('');
+  const [isSyncingReal, setIsSyncingReal] = useState<boolean>(false);
+  const [syncStatusBanner, setSyncStatusBanner] = useState<string | null>(null);
+
+  const hasSyntheticData = useMemo(
+    () => allProperties.some((p) => p.isSynthetic),
+    [allProperties]
+  );
+  const realPropertiesCount = useMemo(
+    () => allProperties.filter((p) => !p.isSynthetic).length,
+    [allProperties]
+  );
+
+  const handleSyncRealCatalog = async (purgeSynthetic = true) => {
+    setIsSyncingReal(true);
+    setSyncStatusBanner(
+      'Sincronizando oferta real de Caballito y Parque Chacabuco (Schema.org/JSON-LD + USIG GCBA)...'
+    );
+    try {
+      const res = await fetch('/api/production/sync-real', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purgeSynthetic, maxPages: 4 }),
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.properties)) {
+        setAllProperties(data.properties);
+        if (Array.isArray(data.blocks)) setBlocks(data.blocks);
+        if (Array.isArray(data.sources)) setSources(data.sources);
+        setOnlyRealProperties(false);
+        if (data.properties.length > 0) {
+          setSelectedPropertyId(data.properties[0].id);
+          setSelectedBlockId(data.properties[0].blockId);
+        }
+        setSyncStatusBanner(
+          `✓ Modo Producción Real activado: ${data.realPropertiesCount} propiedades reales cargadas (${data.createdRealCount} nuevas, ${data.purgedSyntheticCount} sintéticas eliminadas).`
+        );
+      } else {
+        setSyncStatusBanner('Error al sincronizar el catálogo real.');
+      }
+    } catch {
+      setSyncStatusBanner('Error de red al conectar con el motor de sincronización.');
+    } finally {
+      setIsSyncingReal(false);
+    }
+  };
+
+  const handleRestoreDemo = async () => {
+    try {
+      const res = await fetch('/api/production/restore-demo', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.properties)) {
+        setAllProperties(data.properties);
+        if (Array.isArray(data.blocks)) setBlocks(data.blocks);
+        setSyncStatusBanner('Datos sintéticos de demostración POC-01 restaurados.');
+      }
+    } catch {}
+  };
 
   // Sync initial data from backend API if running
   useEffect(() => {
@@ -389,26 +448,77 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-shell">
-      {/* Non-negotiable Synthetic Data Notice Banner */}
-      <div className="synthetic-banner">
-        <div>
-          ⚠️ <strong>MODO DEMOSTRACIÓN POC-01 (IP-00 + IP-01):</strong> Todos los
-          inmuebles, precios e historiales son{' '}
-          <u>DATOS SINTÉTICOS DE PRUEBA ETIQUETADOS</u>. Los polígonos y cruces de
-          calles de Caballito / Parque Chacabuco están verificados contra USIG GCBA.
-          ARV y MAO fuera del alcance del MVP.
-        </div>
+      {/* Dynamic Mode Banner: Synthetic POC-01 vs Production Real Mode */}
+      <div
+        className="synthetic-banner"
+        style={
+          !hasSyntheticData
+            ? {
+                background: 'linear-gradient(90deg, #064e3b 0%, #047857 100%)',
+                borderBottom: '2px solid #10b981',
+                color: '#ecfdf5',
+              }
+            : undefined
+        }
+      >
+        {hasSyntheticData ? (
+          <div>
+            ⚠️ <strong>MODO DEMOSTRACIÓN POC-01 (IP-00 + IP-01):</strong> Hay{' '}
+            {allProperties.filter((p) => p.isSynthetic).length} inmuebles{' '}
+            <u>SINTÉTICOS DE PRUEBA ETIQUETADOS</u> y {realPropertiesCount}{' '}
+            inmuebles reales. Hacé clic en{' '}
+            <strong>"🚀 Pasar a Datos Reales de Caballito"</strong> para borrar
+            la demo e importar oferta real publicada hoy.
+          </div>
+        ) : (
+          <div>
+            🟢 <strong>MODO PRODUCCIÓN REAL ACTIVO:</strong>{' '}
+            <u>{realPropertiesCount} PROPIEDADES REALES PUBLICADAS</u> en
+            Caballito y Parque Chacabuco (0 datos sintéticos). Polígonos Zona A/B,
+            geocodificación USIG GCBA y PostGIS conectados.
+          </div>
+        )}
         <div className="synthetic-banner-badges">
-          <span className="badge-pill" style={{ borderColor: '#10b981', color: '#6ee7b7' }}>
-            ✓ PostGIS + USIG GCBA Conectados
-          </span>
+          {syncStatusBanner && (
+            <span
+              className="badge-pill"
+              style={{
+                borderColor: '#38bdf8',
+                color: '#e0f2fe',
+                background: 'rgba(15, 23, 42, 0.7)',
+              }}
+            >
+              {syncStatusBanner}
+            </span>
+          )}
           <button
-            className="btn"
-            style={{ padding: '2px 8px', fontSize: '11px', background: onlyRealProperties ? '#059669' : '#1e293b' }}
-            onClick={() => setOnlyRealProperties((v) => !v)}
+            className="btn btn-emerald"
+            style={{
+              padding: '4px 12px',
+              fontSize: '11.5px',
+              fontWeight: 700,
+              background: '#10b981',
+              color: '#022c22',
+              border: '1px solid #6ee7b7',
+            }}
+            disabled={isSyncingReal}
+            onClick={() => handleSyncRealCatalog(true)}
           >
-            {onlyRealProperties ? 'Mostrando Solo Datos Reales (Ver Demo)' : 'Ocultar Demo Sintética (Modo Real)'}
+            {isSyncingReal
+              ? '⏳ Sincronizando Oferta Real...'
+              : hasSyntheticData
+              ? '🚀 Pasar a Datos Reales de Caballito (Purgar Demo)'
+              : '🔄 Sincronizar Nuevos Avisos Reales'}
           </button>
+          {!hasSyntheticData && (
+            <button
+              className="btn"
+              style={{ padding: '3px 8px', fontSize: '11px', background: '#1e293b' }}
+              onClick={handleRestoreDemo}
+            >
+              Restaurar Demo POC-01
+            </button>
+          )}
         </div>
       </div>
 

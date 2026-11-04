@@ -321,3 +321,138 @@ export async function extractListingFromPublicUrl(
   };
 }
 
+export interface LiveScrapedListing {
+  externalId: string;
+  title: string;
+  url: string;
+  streetAddress: string;
+  locality: string;
+  coordinates: [number, number]; // [lng, lat]
+  rooms: number;
+  totalAreaM2: number;
+  priceUsd: number;
+  typology: PropertyTypology;
+  conditionState: PropertyCondition;
+  agencyName: string;
+  sourceUrl: string;
+}
+
+export async function fetchLiveCaballitoJsonLdCatalog(
+  maxPages = 5
+): Promise<LiveScrapedListing[]> {
+  const results: LiveScrapedListing[] = [];
+  const seenUrls = new Set<string>();
+
+  for (let page = 1; page <= maxPages; page++) {
+    const feedUrl = `https://lepore.com.ar/propiedades?location%5B%5D=Argentina%2CCapital+Federal%2CCaballito&location%5B%5D=Argentina%2CCapital+Federal%2CParque+Chacabuco&operation%5B%5D=1&page=${page}`;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(feedUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'es-AR,es;q=0.9',
+        },
+      });
+      clearTimeout(timer);
+      if (!res.ok) continue;
+      const html = await res.text();
+
+      const scriptRegex =
+        /<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi;
+      let match: RegExpExecArray | null;
+      while ((match = scriptRegex.exec(html)) !== null) {
+        try {
+          const data = JSON.parse(match[1].trim());
+          if (data?.['@type'] !== 'RealEstateListing') continue;
+
+          const url = String(data.url ?? '').trim();
+          if (!url || seenUrls.has(url)) continue;
+
+          const about = data.about ?? {};
+          const addr = about.address ?? {};
+          const geo = about.geo ?? {};
+          const offers = data.offers ?? {};
+
+          const price = Number(offers.price ?? 0);
+          const currency = String(offers.priceCurrency ?? 'USD');
+          if (currency !== 'USD' || price < 35000 || price > 600000) continue;
+
+          const rooms = Number(about.numberOfRooms ?? 0);
+          if (rooms < 2 || rooms > 4) continue;
+
+          const area = Math.round(Number(about.floorSize?.value ?? 0));
+          if (area < 28 || area > 240) continue;
+
+          const lat = Number(geo.latitude);
+          const lng = Number(geo.longitude);
+          if (
+            Number.isNaN(lat) ||
+            Number.isNaN(lng) ||
+            lat > -34.58 ||
+            lat < -34.67 ||
+            lng < -58.52 ||
+            lng > -58.38
+          ) {
+            continue;
+          }
+
+          const nameStr = String(data.name ?? 'Propiedad en Caballito').trim();
+          const streetAddress = String(addr.streetAddress ?? '').replace(/\s+/g, ' ').trim();
+          const locality = String(addr.addressLocality ?? 'Caballito').trim();
+          if (!streetAddress) continue;
+
+          let typology: PropertyTypology = 'DEPTO_3AMB';
+          if (/\bph\b/i.test(nameStr) || /\bph\b/i.test(url)) {
+            typology = 'PH';
+          } else if (rooms === 2) {
+            typology = 'DEPTO_2AMB';
+          } else if (rooms === 3) {
+            typology = 'DEPTO_3AMB';
+          } else {
+            typology = 'DEPTO_4AMB_EXCEPCION';
+          }
+
+          const usdM2 = Math.round(price / area);
+          let conditionState: PropertyCondition = 'REGULAR';
+          if (
+            /refaccionar|reciclar|oportunidad|antiguo/i.test(nameStr) ||
+            usdM2 <= 1650
+          ) {
+            conditionState = 'A_REFACCIONAR';
+          } else if (usdM2 <= 1980) {
+            conditionState = 'EPOCA_ORIGINAL';
+          }
+
+          seenUrls.add(url);
+          results.push({
+            externalId: url.split('--').pop() ?? String(Date.now()),
+            title: nameStr,
+            url,
+            streetAddress,
+            locality,
+            coordinates: [lng, lat],
+            rooms,
+            totalAreaM2: area,
+            priceUsd: price,
+            typology,
+            conditionState,
+            agencyName: 'Lepore Propiedades Caballito (Catálogo JSON-LD)',
+            sourceUrl: 'https://lepore.com.ar/propiedades',
+          });
+        } catch {
+          // Ignore malformed JSON-LD block
+        }
+      }
+    } catch {
+      // Continue with next page
+    }
+  }
+
+  return results;
+}
+
+
